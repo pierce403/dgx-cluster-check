@@ -1,0 +1,15 @@
+[Unit]
+Description=Ray worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/home/%i/dgx-cluster-check/.env
+ExecStart=/usr/bin/ray start --address=${MASTER_ADDR}:${MASTER_PORT}
+ExecStop=/usr/bin/ray stop
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+

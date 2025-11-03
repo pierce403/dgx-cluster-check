@@ -1,0 +1,14 @@
+[Unit]
+Description=vLLM API server
+After=ray-head.service
+
+[Service]
+Type=simple
+EnvironmentFile=/home/%i/dgx-cluster-check/.env
+WorkingDirectory=/home/%i/dgx-cluster-check
+ExecStart=/usr/bin/env bash scripts/08-vllm-serve.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+

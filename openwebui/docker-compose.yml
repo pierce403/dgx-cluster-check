@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    environment:
+      - WEBUI_NAME=DGX Cluster UI
+      - ENABLE_OPENAI_API=True
+      - OPENAI_API_BASE_URL=http://${MASTER_ADDR}:${VLLM_PORT}/v1
+      - OPENAI_API_KEY=local
+    volumes:
+      - openwebui_data:/app/backend/data
+    restart: unless-stopped
+volumes:
+  openwebui_data: {}
+
