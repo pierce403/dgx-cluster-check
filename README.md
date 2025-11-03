@@ -24,7 +24,8 @@ Turn two **NVIDIA DGX Spark** boxes from factory-fresh into a working **two-node
 ```
 .
 ├─ README.md  ← this file
-├─ .env.example
+├─ env.example
+├─ setup.sh   ← interactive configuration wizard
 ├─ scripts/
 │  ├─ 00-detect-ifaces.sh
 │  ├─ 01-configure-link.sh
@@ -53,8 +54,19 @@ Turn two **NVIDIA DGX Spark** boxes from factory-fresh into a working **two-node
 **On both Sparks**
 ```bash
 sudo apt update && sudo apt install -y git
-cd ~ && git clone https://github.com/<you>/dgx-cluster-check.git
-cd dgx-cluster-check && cp .env.example .env
+cd ~ && git clone https://github.com/pierce403/dgx-cluster-check.git
+cd dgx-cluster-check
+```
+
+**Option A: Interactive setup (recommended)**
+```bash
+bash setup.sh
+# Follow the prompts to configure this node
+```
+
+**Option B: Manual configuration**
+```bash
+cp env.example .env
 ```
 
 Edit **.env** on each host:
