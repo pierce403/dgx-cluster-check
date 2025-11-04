@@ -1,6 +1,8 @@
 # dgx-cluster-check
 
-Turn two **NVIDIA DGX Spark** boxes from factory-fresh into a working **two-node LLM cluster** that serves an **OpenAI-compatible API** for **Open WebUI**. The scripts are idempotent and split into small steps so you can stop/restart anywhere.
+Turn two **NVIDIA DGX Spark** boxes from factory-fresh into a working **two-node LLM cluster** that serves an **OpenAI-compatible API** for **Open WebUI**. 
+
+🚀 **One-command automated setup** or manual step-by-step—your choice. Scripts are idempotent and can be run individually or all at once.
 
 > Target OS: **DGX OS 7 / Ubuntu 24.04** (stock DGX Spark image)
 >
@@ -58,13 +60,14 @@ cd ~ && git clone https://github.com/pierce403/dgx-cluster-check.git
 cd dgx-cluster-check
 ```
 
-**Option A: Interactive setup (recommended)**
+**Option A: Automated setup (recommended) - One command to running demo!**
 ```bash
 bash setup.sh
-# Follow the prompts to configure this node
+# Interactive prompts → Full installation → Running LLM cluster!
+# Takes 10-30 minutes depending on model size
 ```
 
-**Option B: Manual configuration**
+**Option B: Manual step-by-step**
 ```bash
 cp env.example .env
 ```
