@@ -405,11 +405,57 @@ volumes:
 ---
 
 ## Troubleshooting
-- **Wrong NIC used by NCCL** → ensure `NCCL_SOCKET_IFNAME=$IFACE` exported on **both** nodes.
-- **iperf3 poor throughput** → verify you’re testing over the CX‑7 IPs; MTU set to 9000 on both; cable seated.
-- **Ray worker fails to join** → check `MASTER_ADDR`, firewall, and that head is listening on the CX‑7 IP.
-- **HF model auth** → set HF token and accept model licenses; large models may require manual EULA acceptance.
-- **OOM / model too large** → use a smaller model or increase tensor parallel degree; confirm VRAM/GB memory needs.
+
+### Common Issues
+
+**Wrong NIC used by NCCL**
+- Ensure `NCCL_SOCKET_IFNAME=$IFACE` exported on **both** nodes
+
+**iperf3 poor throughput**
+- Verify testing over the CX‑7 IPs
+- Check MTU set to 9000 on both
+- Ensure cable is properly seated
+
+**Ray worker fails to join**
+- Check `MASTER_ADDR` and firewall
+- Verify head is listening on the CX‑7 IP
+- Run: `bash scripts/10-fix-ray.sh`
+
+**Ray GCS connection timeout**
+- Firewall blocking port 6379
+- Run: `bash scripts/10-fix-ray.sh`
+
+**vLLM: libcudart.so.12 not found**
+- CUDA libraries not in path
+- Run: `bash scripts/12-find-cuda.sh`
+- Scripts automatically add CUDA to path in utils.sh
+
+**HF model auth**
+- Set HF token: `huggingface-cli login`
+- Accept model licenses on HuggingFace website
+- Large models may require manual EULA acceptance
+
+**OOM / model too large**
+- Use a smaller model
+- Increase `TP_SIZE` in .env
+- Confirm VRAM requirements
+
+**Open WebUI can't see vLLM models**
+- Add connection via Admin Panel → Settings → Connections
+- See `OPEN_WEBUI_SETUP.md` for details
+
+### Diagnostic Scripts
+
+```bash
+# Find CUDA installation
+bash scripts/12-find-cuda.sh
+
+# Comprehensive diagnostics
+bash scripts/99-diagnose.sh
+
+# Fix Ray issues automatically
+bash scripts/10-fix-ray.sh
+```
 
 ---
 
