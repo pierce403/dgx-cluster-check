@@ -48,7 +48,11 @@ check_link_configured() {
 }
 
 check_deps_installed() {
-    command -v ray &>/dev/null && command -v iperf3 &>/dev/null && python3 -c "import vllm" 2>/dev/null
+    local VENV_DIR="$SCRIPT_DIR/venv"
+    command -v iperf3 &>/dev/null && \
+    [[ -f "$VENV_DIR/bin/ray" ]] && \
+    [[ -f "$VENV_DIR/bin/activate" ]] && \
+    ( source "$VENV_DIR/bin/activate" && python3 -c "import vllm" 2>/dev/null )
 }
 
 check_nccl_built() {

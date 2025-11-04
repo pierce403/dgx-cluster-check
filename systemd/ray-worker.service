@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/home/%i/dgx-cluster-check/.env
-ExecStart=/usr/bin/ray start --address=${MASTER_ADDR}:${MASTER_PORT}
-ExecStop=/usr/bin/ray stop
+ExecStart=/home/%i/dgx-cluster-check/venv/bin/ray start --address=${MASTER_ADDR}:${MASTER_PORT}
+ExecStop=/home/%i/dgx-cluster-check/venv/bin/ray stop
 Restart=on-failure
 
 [Install]

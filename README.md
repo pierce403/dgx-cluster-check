@@ -145,6 +145,13 @@ All scripts source `utils.sh` and `.env`. They are safe to re-run.
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)
 source "$ROOT/.env"
+
+# Activate Python virtual environment if it exists
+VENV_DIR="$ROOT/venv"
+if [[ -d "$VENV_DIR" ]]; then
+    source "$VENV_DIR/bin/activate"
+fi
+
 export NCCL_SOCKET_IFNAME=${IFACE}
 export NCCL_DEBUG=${NCCL_DEBUG:-INFO}
 export NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-0}
@@ -193,13 +200,20 @@ ip -br addr show dev "$IFACE"
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Installs system packages via apt
 sudo apt update
 sudo apt install -y iperf3 openmpi-bin libopenmpi-dev rdma-core perftest git build-essential \
-                    python3-pip python3-venv libnccl2 libnccl-dev
+                    python3-pip python3-venv python3-full libnccl2 libnccl-dev
 
-python3 -m pip install -U pip wheel
-python3 -m pip install -U ray[default] vllm
+# Creates a Python virtual environment at ./venv
+# Installs Ray and vLLM in the venv (avoids system-wide install issues)
+python3 -m venv venv
+source venv/bin/activate
+pip install -U pip wheel
+pip install -U ray[default] vllm
 ```
+
+> **Note:** All Python packages are installed in a virtual environment (`./venv`) to comply with PEP 668 on Ubuntu 24.04+. The `utils.sh` script automatically activates this venv.
 
 ### `scripts/03-test-link.sh`
 ```bash

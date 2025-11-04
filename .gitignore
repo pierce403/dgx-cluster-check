@@ -1,0 +1,38 @@
+# Environment configuration
+.env
+.env.backup
+
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Setup state
+.setup_state
+
+# Logs
+*.log
+vllm.log
+nohup.out
+
+# Process IDs
+*.pid
+vllm.pid
+
+# Hugging Face cache (if local)
+.cache/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+

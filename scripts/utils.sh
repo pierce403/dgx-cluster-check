@@ -2,6 +2,13 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)
 source "$ROOT/.env"
+
+# Activate Python virtual environment if it exists
+VENV_DIR="$ROOT/venv"
+if [[ -d "$VENV_DIR" ]]; then
+    source "$VENV_DIR/bin/activate"
+fi
+
 export NCCL_SOCKET_IFNAME=${IFACE}
 export NCCL_DEBUG=${NCCL_DEBUG:-INFO}
 export NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-0}
