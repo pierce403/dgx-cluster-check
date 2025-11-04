@@ -65,12 +65,37 @@ echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
 # huggingface-cli login --token YOUR_TOKEN
 
 echo ""
-echo "Starting vLLM API server..."
+echo "======================================================================"
+echo "Verifying Ray Cluster Connection"
+echo "======================================================================"
+echo ""
+
+# Check if Ray cluster is accessible
+echo "Checking Ray cluster at ${MASTER_ADDR}:${MASTER_PORT}..."
+if ray status 2>&1 | grep -q "ray start\|cluster"; then
+    echo "✓ Ray cluster is accessible"
+    echo ""
+    ray status | head -20
+else
+    echo "⚠ Warning: Cannot verify Ray cluster status"
+    echo "  This might be okay if Ray is running but not fully initialized"
+    echo "  vLLM will attempt to connect anyway..."
+fi
+
+echo ""
+echo "======================================================================"
+echo "Starting vLLM API Server"
+echo "======================================================================"
+echo ""
+echo "Configuration:"
 echo "  Model: ${MODEL}"
 echo "  Host: 0.0.0.0"
 echo "  Port: ${VLLM_PORT}"
-echo "  Ray: ${MASTER_ADDR}:${MASTER_PORT}"
+echo "  Ray Address: ${MASTER_ADDR}:${MASTER_PORT}"
 echo "  Tensor Parallel: ${TP_SIZE:-2}"
+echo ""
+echo "This may take several minutes on first run (downloading model)..."
+echo "Watch logs with: tail -f vllm.log"
 echo ""
 
 # Launch vLLM distributed using Ray

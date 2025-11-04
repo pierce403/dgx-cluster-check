@@ -60,7 +60,18 @@ check_nccl_built() {
 }
 
 check_ray_running() {
-    ray status &>/dev/null
+    # Check if Ray processes are running (more reliable than ray status)
+    if pgrep -f "ray::IDLE\|raylet\|gcs_server" > /dev/null 2>&1; then
+        return 0
+    fi
+    
+    # Also try ray status if venv is available
+    local VENV_DIR="$SCRIPT_DIR/venv"
+    if [[ -f "$VENV_DIR/bin/ray" ]]; then
+        "$VENV_DIR/bin/ray" status &>/dev/null && return 0
+    fi
+    
+    return 1
 }
 
 check_vllm_running() {
