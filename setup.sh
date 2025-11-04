@@ -58,18 +58,20 @@ print_step "Step 1: Detecting network interfaces"
 print_info "Looking for Mellanox/NVIDIA ConnectX interfaces..."
 echo ""
 
-# Try to detect ConnectX interfaces
-DETECTED_IFACES=$(ip -br link | grep -E 'mlx|eth|enp' | awk '{print $1}' || true)
+# Try to detect ConnectX interfaces (exclude veth/lo/docker interfaces)
+DETECTED_IFACES=$(ip -br link | grep -E 'mlx|eth|enp' | grep -v -E 'veth|docker|lo' | awk '{print $1}' || true)
 
 if [[ -z "$DETECTED_IFACES" ]]; then
     print_warning "Could not auto-detect ConnectX interfaces"
     print_info "Available interfaces:"
-    ip -br link | awk '{print "  - " $1, "(" $2 ")"}'
+    ip -br link | grep -v -E 'veth|docker|lo' | awk '{print "  - " $1, "(" $2 ")"}'
 else
     print_success "Found potential interfaces:"
     echo "$DETECTED_IFACES" | while read iface; do
-        STATUS=$(ip -br link show "$iface" | awk '{print $2}')
-        echo "  - $iface ($STATUS)"
+        if [[ -n "$iface" ]]; then
+            STATUS=$(ip -br link show "$iface" 2>/dev/null | awk '{print $2}' || echo "UNKNOWN")
+            echo "  - $iface ($STATUS)"
+        fi
     done
 fi
 
@@ -121,8 +123,8 @@ fi
 # Validate interface exists
 if ! ip link show "$IFACE" &> /dev/null; then
     print_error "Interface '$IFACE' not found!"
-    print_info "Available interfaces:"
-    ip -br link | awk '{print "  - " $1}'
+    print_info "Available interfaces (excluding virtual/docker):"
+    ip -br link | grep -v -E 'veth|docker|lo' | awk '{print "  - " $1, "(" $2 ")"}'
     exit 1
 fi
 
