@@ -260,38 +260,38 @@ print_success "Configuration complete!"
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
-echo "║                      Next Steps                                ║"
+echo "║                 Starting Automated Installation                ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 
+print_warning "This will now automatically:"
 if [[ "$ROLE" == "head" ]]; then
-    print_info "On this HEAD node, run:"
-    echo ""
-    echo "  1. bash scripts/00-detect-ifaces.sh     # Verify interface detection"
-    echo "  2. bash scripts/01-configure-link.sh    # Configure network link"
-    echo "  3. bash scripts/02-install-deps.sh      # Install dependencies"
-    echo "  4. bash scripts/03-test-link.sh         # Test network (run after worker setup)"
-    echo "  5. bash scripts/04-build-nccl-tests.sh  # Build NCCL tests"
-    echo "  6. bash scripts/06-ray-head.sh          # Start Ray head"
-    echo "  7. bash scripts/08-vllm-serve.sh        # Start vLLM (after step 6)"
-    echo ""
-    print_warning "Make sure to set up the WORKER node before testing the link!"
+    echo "  • Configure network link"
+    echo "  • Install all dependencies (may require sudo)"
+    echo "  • Build NCCL tests"
+    echo "  • Start Ray head node"
+    echo "  • Launch vLLM API server"
 else
-    print_info "On this WORKER node, run:"
+    echo "  • Configure network link"
+    echo "  • Install all dependencies (may require sudo)"
+    echo "  • Build NCCL tests"
+    echo "  • Start iperf3 server for testing"
+    echo "  • Wait for head node to be ready"
+    echo "  • Connect to Ray cluster"
+fi
+echo ""
+
+read -p "Continue with automated installation? (yes/no) [yes]: " CONTINUE
+CONTINUE=${CONTINUE:-yes}
+if [[ "$CONTINUE" != "yes" ]]; then
     echo ""
-    echo "  1. bash scripts/00-detect-ifaces.sh     # Verify interface detection"
-    echo "  2. bash scripts/01-configure-link.sh    # Configure network link"
-    echo "  3. bash scripts/02-install-deps.sh      # Install dependencies"
-    echo "  4. bash scripts/03-test-link.sh         # Start iperf3 server"
-    echo "  5. bash scripts/04-build-nccl-tests.sh  # Build NCCL tests"
-    echo "  6. bash scripts/07-ray-worker.sh        # Connect to Ray head"
+    print_info "Installation cancelled. You can run the scripts manually:"
+    print_info "Configuration saved to: $ENV_FILE"
+    print_info "See README.md for manual setup steps."
     echo ""
-    print_warning "Make sure the HEAD node is set up and Ray head is running before step 6!"
+    exit 0
 fi
 
-echo ""
-print_info "For detailed information, see README.md"
-print_info "Configuration file: $ENV_FILE"
 echo ""
 
 # Final checks
@@ -350,6 +350,222 @@ else
 fi
 
 echo ""
-print_success "Setup complete! Ready to proceed with installation."
+print_success "Pre-flight checks complete!"
+
+# ============================================================================
+# AUTOMATED INSTALLATION
+# ============================================================================
+
+echo ""
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║              Running Installation Scripts                      ║"
+echo "╚════════════════════════════════════════════════════════════════╝"
+echo ""
+
+# Track if any step fails
+INSTALL_FAILED=0
+
+# Step 1: Configure network link
+echo ""
+print_step "Running: 01-configure-link.sh"
+if bash "$SCRIPT_DIR/scripts/01-configure-link.sh"; then
+    print_success "Network link configured"
+else
+    print_error "Failed to configure network link"
+    INSTALL_FAILED=1
+fi
+
+# Step 2: Install dependencies
+if [[ $INSTALL_FAILED -eq 0 ]]; then
+    echo ""
+    print_step "Running: 02-install-deps.sh (this may take several minutes)"
+    print_info "Installing iperf3, MPI, NCCL, Ray, vLLM..."
+    if bash "$SCRIPT_DIR/scripts/02-install-deps.sh"; then
+        print_success "Dependencies installed"
+    else
+        print_error "Failed to install dependencies"
+        INSTALL_FAILED=1
+    fi
+fi
+
+# Step 3: Build NCCL tests
+if [[ $INSTALL_FAILED -eq 0 ]]; then
+    echo ""
+    print_step "Running: 04-build-nccl-tests.sh (this may take a few minutes)"
+    if bash "$SCRIPT_DIR/scripts/04-build-nccl-tests.sh"; then
+        print_success "NCCL tests built"
+    else
+        print_warning "NCCL tests build failed (non-critical)"
+    fi
+fi
+
+# Role-specific steps
+if [[ $INSTALL_FAILED -eq 0 ]]; then
+    if [[ "$ROLE" == "head" ]]; then
+        # HEAD NODE: Start Ray head and vLLM
+        echo ""
+        print_step "Running: 06-ray-head.sh"
+        if bash "$SCRIPT_DIR/scripts/06-ray-head.sh"; then
+            print_success "Ray head node started"
+            
+            echo ""
+            print_step "Waiting 5 seconds for Ray to stabilize..."
+            sleep 5
+            
+            echo ""
+            print_step "Running: 08-vllm-serve.sh"
+            print_info "Starting vLLM API server (this will run in background)"
+            print_info "Model: $MODEL"
+            print_warning "Note: First model load may take time to download from HuggingFace"
+            
+            # Run vLLM in background
+            nohup bash "$SCRIPT_DIR/scripts/08-vllm-serve.sh" > "$SCRIPT_DIR/vllm.log" 2>&1 &
+            VLLM_PID=$!
+            echo $VLLM_PID > "$SCRIPT_DIR/vllm.pid"
+            
+            print_success "vLLM server starting in background (PID: $VLLM_PID)"
+            print_info "Logs: $SCRIPT_DIR/vllm.log"
+            print_info "To stop: kill \$(cat $SCRIPT_DIR/vllm.pid)"
+            
+            echo ""
+            print_step "Waiting for vLLM API to be ready..."
+            print_info "This may take several minutes for first-time model download..."
+            
+            # Wait for API to respond (with timeout)
+            MAX_WAIT=600  # 10 minutes
+            WAITED=0
+            API_READY=0
+            while [[ $WAITED -lt $MAX_WAIT ]]; do
+                if curl -s "http://${IP}:${VLLM_PORT}/v1/models" > /dev/null 2>&1; then
+                    API_READY=1
+                    break
+                fi
+                sleep 10
+                WAITED=$((WAITED + 10))
+                if [[ $((WAITED % 60)) -eq 0 ]]; then
+                    print_info "Still waiting... (${WAITED}s elapsed)"
+                fi
+            done
+            
+            if [[ $API_READY -eq 1 ]]; then
+                print_success "vLLM API is ready!"
+            else
+                print_warning "API not responding yet. Check logs: tail -f $SCRIPT_DIR/vllm.log"
+            fi
+        else
+            print_error "Failed to start Ray head"
+            INSTALL_FAILED=1
+        fi
+        
+    else
+        # WORKER NODE: Start iperf3 and connect to Ray
+        echo ""
+        print_step "Running: 03-test-link.sh (starting iperf3 server)"
+        if bash "$SCRIPT_DIR/scripts/03-test-link.sh"; then
+            print_success "iperf3 server started"
+        else
+            print_warning "iperf3 server failed to start (non-critical)"
+        fi
+        
+        echo ""
+        print_warning "Worker node needs the HEAD node to be ready before connecting to Ray"
+        read -p "Is the HEAD node Ray cluster ready? (yes/no) [no]: " HEAD_READY
+        HEAD_READY=${HEAD_READY:-no}
+        
+        if [[ "$HEAD_READY" == "yes" ]]; then
+            echo ""
+            print_step "Running: 07-ray-worker.sh"
+            if bash "$SCRIPT_DIR/scripts/07-ray-worker.sh"; then
+                print_success "Ray worker connected to cluster"
+            else
+                print_error "Failed to connect to Ray cluster"
+                print_info "Make sure HEAD node is running: $MASTER_ADDR:$MASTER_PORT"
+                INSTALL_FAILED=1
+            fi
+        else
+            print_info "Skipping Ray worker connection"
+            print_info "Run manually when head is ready: bash scripts/07-ray-worker.sh"
+        fi
+    fi
+fi
+
+# ============================================================================
+# FINAL STATUS
+# ============================================================================
+
+echo ""
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║                    Installation Complete                       ║"
+echo "╚════════════════════════════════════════════════════════════════╝"
+echo ""
+
+if [[ $INSTALL_FAILED -eq 0 ]]; then
+    print_success "All installation steps completed successfully!"
+    echo ""
+    
+    if [[ "$ROLE" == "head" ]]; then
+        echo "╔════════════════════════════════════════════════════════════════╗"
+        echo "║                    HEAD NODE - DEMO READY                      ║"
+        echo "╚════════════════════════════════════════════════════════════════╝"
+        echo ""
+        print_success "Your DGX cluster is now serving LLMs!"
+        echo ""
+        print_info "API Endpoint:"
+        echo "  http://${IP}:${VLLM_PORT}/v1"
+        echo ""
+        print_info "Test the API:"
+        echo "  curl http://${IP}:${VLLM_PORT}/v1/models"
+        echo ""
+        echo "  curl http://${IP}:${VLLM_PORT}/v1/chat/completions \\"
+        echo "    -H 'Content-Type: application/json' \\"
+        echo "    -d '{"
+        echo "      \"model\": \"${MODEL}\","
+        echo "      \"messages\": [{\"role\":\"user\",\"content\":\"Hello!\"}]"
+        echo "    }'"
+        echo ""
+        print_info "Monitor logs:"
+        echo "  tail -f $SCRIPT_DIR/vllm.log"
+        echo ""
+        print_info "Ray dashboard (if enabled):"
+        echo "  http://${IP}:8265"
+        echo ""
+        print_info "To setup Open WebUI:"
+        echo "  cd openwebui"
+        echo "  MASTER_ADDR=${IP} VLLM_PORT=${VLLM_PORT} docker compose up -d"
+        echo "  Browse to http://${IP}:3000"
+        echo ""
+        
+    else
+        echo "╔════════════════════════════════════════════════════════════════╗"
+        echo "║                   WORKER NODE - READY                          ║"
+        echo "╚════════════════════════════════════════════════════════════════╝"
+        echo ""
+        print_success "Worker node is configured and ready!"
+        echo ""
+        print_info "Status:"
+        echo "  • Network link: $IFACE at $IP"
+        echo "  • iperf3 server: running"
+        echo "  • Ray worker: $(systemctl --user is-active ray-worker 2>/dev/null || echo 'not running yet')"
+        echo ""
+        print_info "Test network from HEAD node:"
+        echo "  iperf3 -c $IP -P 8 -t 10 -M 9000"
+        echo ""
+        print_info "Check Ray connection:"
+        echo "  ray status"
+        echo ""
+    fi
+    
+    print_info "Documentation: $SCRIPT_DIR/README.md"
+    print_info "Configuration: $ENV_FILE"
+    
+else
+    print_error "Installation encountered errors"
+    print_info "Check the output above for details"
+    print_info "You can run individual scripts manually:"
+    print_info "  bash scripts/01-configure-link.sh"
+    print_info "  bash scripts/02-install-deps.sh"
+    print_info "  etc."
+fi
+
 echo ""
 
