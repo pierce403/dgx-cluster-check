@@ -29,9 +29,39 @@ print_info() {
     echo -e "  $1"
 }
 
+print_skip() {
+    echo -e "${YELLOW}⊘${NC} $1 (skipped - already done)"
+}
+
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
+STATE_FILE="$SCRIPT_DIR/.setup_state"
+
+# Functions to check completion status
+check_env_configured() {
+    [[ -f "$ENV_FILE" ]] && source "$ENV_FILE" && [[ -n "${ROLE:-}" ]] && [[ -n "${IFACE:-}" ]]
+}
+
+check_link_configured() {
+    [[ -n "${IFACE:-}" ]] && [[ -n "${IP:-}" ]] && ip addr show "$IFACE" 2>/dev/null | grep -q "$IP"
+}
+
+check_deps_installed() {
+    command -v ray &>/dev/null && command -v iperf3 &>/dev/null && python3 -c "import vllm" 2>/dev/null
+}
+
+check_nccl_built() {
+    [[ -f "$HOME/nccl-tests/build/all_reduce_perf" ]]
+}
+
+check_ray_running() {
+    ray status &>/dev/null
+}
+
+check_vllm_running() {
+    [[ -f "$SCRIPT_DIR/vllm.pid" ]] && kill -0 $(cat "$SCRIPT_DIR/vllm.pid" 2>/dev/null) 2>/dev/null
+}
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
@@ -39,24 +69,85 @@ echo "║        DGX Cluster Setup - Interactive Configuration          ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Check if .env already exists
+# Check if .env already exists and load it
+EXISTING_CONFIG=false
+RESUME_MODE=false
+
 if [[ -f "$ENV_FILE" ]]; then
-    print_warning ".env file already exists at $ENV_FILE"
-    read -p "Do you want to overwrite it? (yes/no) [no]: " OVERWRITE
-    OVERWRITE=${OVERWRITE:-no}
-    if [[ "$OVERWRITE" != "yes" ]]; then
-        print_info "Setup cancelled. Keeping existing .env file."
-        exit 0
+    EXISTING_CONFIG=true
+    source "$ENV_FILE" 2>/dev/null || true
+    
+    echo ""
+    print_success "Found existing configuration!"
+    echo ""
+    print_step "Current configuration:"
+    echo "  Role:              ${ROLE:-not set}"
+    echo "  Interface:         ${IFACE:-not set}"
+    echo "  This node IP:      ${IP:-not set}"
+    echo "  Peer node IP:      ${PEER_IP:-not set}"
+    echo "  Ray head:          ${MASTER_ADDR:-not set}:${MASTER_PORT:-not set}"
+    echo "  Model:             ${MODEL:-not set}"
+    echo ""
+    
+    print_step "Checking installation status..."
+    echo ""
+    
+    # Check each step
+    if check_link_configured; then
+        print_success "Network link configured"
+    else
+        print_warning "Network link not configured yet"
     fi
-    print_step "Backing up existing .env to .env.backup"
-    cp "$ENV_FILE" "$ENV_FILE.backup"
-    print_success "Backup created"
+    
+    if check_deps_installed; then
+        print_success "Dependencies installed"
+    else
+        print_warning "Dependencies not installed yet"
+    fi
+    
+    if check_nccl_built; then
+        print_success "NCCL tests built"
+    else
+        print_warning "NCCL tests not built yet"
+    fi
+    
+    if check_ray_running; then
+        print_success "Ray is running"
+    else
+        print_warning "Ray is not running"
+    fi
+    
+    if [[ "${ROLE:-}" == "head" ]] && check_vllm_running; then
+        print_success "vLLM is running"
+    elif [[ "${ROLE:-}" == "head" ]]; then
+        print_warning "vLLM is not running"
+    fi
+    
+    echo ""
+    read -p "Continue with existing config and complete remaining steps? (yes/reconfigure/cancel) [yes]: " ACTION
+    ACTION=${ACTION:-yes}
+    
+    if [[ "$ACTION" == "cancel" ]]; then
+        print_info "Setup cancelled."
+        exit 0
+    elif [[ "$ACTION" == "reconfigure" ]]; then
+        print_step "Backing up existing .env to .env.backup"
+        cp "$ENV_FILE" "$ENV_FILE.backup"
+        print_success "Backup created. Starting fresh configuration..."
+        EXISTING_CONFIG=false
+        RESUME_MODE=false
+    else
+        print_success "Resuming installation from existing configuration"
+        RESUME_MODE=true
+    fi
 fi
 
-echo ""
-print_step "Step 1: Detecting network interfaces"
-print_info "Looking for Mellanox/NVIDIA ConnectX interfaces..."
-echo ""
+# Only do configuration if not resuming
+if [[ "$RESUME_MODE" == "false" ]]; then
+    echo ""
+    print_step "Step 1: Detecting network interfaces"
+    print_info "Looking for Mellanox/NVIDIA ConnectX interfaces..."
+    echo ""
 
 # Try to detect ConnectX interfaces (exclude veth/lo/docker interfaces)
 DETECTED_IFACES=$(ip -br link | grep -E 'mlx|eth|enp' | grep -v -E 'veth|docker|lo' | awk '{print $1}' || true)
@@ -234,29 +325,34 @@ NCCL_IB_HCA=mlx5
 # TRANSFORMERS_CACHE=\$HF_HOME
 EOF
 
-if [[ -f "$ENV_FILE" ]]; then
-    print_success "Configuration written to $ENV_FILE"
+    if [[ -f "$ENV_FILE" ]]; then
+        print_success "Configuration written to $ENV_FILE"
+    else
+        print_error "Failed to write configuration file!"
+        exit 1
+    fi
+
+    echo ""
+    print_step "Step 8: Verifying configuration"
+
+    print_info "Configuration summary:"
+    echo ""
+    echo "  Role:              $ROLE"
+    echo "  Interface:         $IFACE"
+    echo "  This node IP:      $IP"
+    echo "  Peer node IP:      $PEER_IP"
+    echo "  Ray head:          $MASTER_ADDR:$MASTER_PORT"
+    echo "  vLLM port:         $VLLM_PORT"
+    echo "  Model:             $MODEL"
+    echo "  Tensor parallel:   $TP_SIZE"
+    echo ""
+
+    print_success "Configuration complete!"
 else
-    print_error "Failed to write configuration file!"
-    exit 1
+    # Resume mode - load existing config
+    source "$ENV_FILE"
+    print_step "Using existing configuration from $ENV_FILE"
 fi
-
-echo ""
-print_step "Step 8: Verifying configuration"
-
-print_info "Configuration summary:"
-echo ""
-echo "  Role:              $ROLE"
-echo "  Interface:         $IFACE"
-echo "  This node IP:      $IP"
-echo "  Peer node IP:      $PEER_IP"
-echo "  Ray head:          $MASTER_ADDR:$MASTER_PORT"
-echo "  vLLM port:         $VLLM_PORT"
-echo "  Model:             $MODEL"
-echo "  Tensor parallel:   $TP_SIZE"
-echo ""
-
-print_success "Configuration complete!"
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
@@ -367,35 +463,47 @@ INSTALL_FAILED=0
 
 # Step 1: Configure network link
 echo ""
-print_step "Running: 01-configure-link.sh"
-if bash "$SCRIPT_DIR/scripts/01-configure-link.sh"; then
-    print_success "Network link configured"
+if check_link_configured; then
+    print_skip "Network link already configured"
 else
-    print_error "Failed to configure network link"
-    INSTALL_FAILED=1
+    print_step "Running: 01-configure-link.sh"
+    if bash "$SCRIPT_DIR/scripts/01-configure-link.sh"; then
+        print_success "Network link configured"
+    else
+        print_error "Failed to configure network link"
+        INSTALL_FAILED=1
+    fi
 fi
 
 # Step 2: Install dependencies
 if [[ $INSTALL_FAILED -eq 0 ]]; then
     echo ""
-    print_step "Running: 02-install-deps.sh (this may take several minutes)"
-    print_info "Installing iperf3, MPI, NCCL, Ray, vLLM..."
-    if bash "$SCRIPT_DIR/scripts/02-install-deps.sh"; then
-        print_success "Dependencies installed"
+    if check_deps_installed; then
+        print_skip "Dependencies already installed"
     else
-        print_error "Failed to install dependencies"
-        INSTALL_FAILED=1
+        print_step "Running: 02-install-deps.sh (this may take several minutes)"
+        print_info "Installing iperf3, MPI, NCCL, Ray, vLLM..."
+        if bash "$SCRIPT_DIR/scripts/02-install-deps.sh"; then
+            print_success "Dependencies installed"
+        else
+            print_error "Failed to install dependencies"
+            INSTALL_FAILED=1
+        fi
     fi
 fi
 
 # Step 3: Build NCCL tests
 if [[ $INSTALL_FAILED -eq 0 ]]; then
     echo ""
-    print_step "Running: 04-build-nccl-tests.sh (this may take a few minutes)"
-    if bash "$SCRIPT_DIR/scripts/04-build-nccl-tests.sh"; then
-        print_success "NCCL tests built"
+    if check_nccl_built; then
+        print_skip "NCCL tests already built"
     else
-        print_warning "NCCL tests build failed (non-critical)"
+        print_step "Running: 04-build-nccl-tests.sh (this may take a few minutes)"
+        if bash "$SCRIPT_DIR/scripts/04-build-nccl-tests.sh"; then
+            print_success "NCCL tests built"
+        else
+            print_warning "NCCL tests build failed (non-critical)"
+        fi
     fi
 fi
 
@@ -404,87 +512,121 @@ if [[ $INSTALL_FAILED -eq 0 ]]; then
     if [[ "$ROLE" == "head" ]]; then
         # HEAD NODE: Start Ray head and vLLM
         echo ""
-        print_step "Running: 06-ray-head.sh"
-        if bash "$SCRIPT_DIR/scripts/06-ray-head.sh"; then
-            print_success "Ray head node started"
-            
-            echo ""
-            print_step "Waiting 5 seconds for Ray to stabilize..."
-            sleep 5
-            
-            echo ""
-            print_step "Running: 08-vllm-serve.sh"
-            print_info "Starting vLLM API server (this will run in background)"
-            print_info "Model: $MODEL"
-            print_warning "Note: First model load may take time to download from HuggingFace"
-            
-            # Run vLLM in background
-            nohup bash "$SCRIPT_DIR/scripts/08-vllm-serve.sh" > "$SCRIPT_DIR/vllm.log" 2>&1 &
-            VLLM_PID=$!
-            echo $VLLM_PID > "$SCRIPT_DIR/vllm.pid"
-            
-            print_success "vLLM server starting in background (PID: $VLLM_PID)"
-            print_info "Logs: $SCRIPT_DIR/vllm.log"
-            print_info "To stop: kill \$(cat $SCRIPT_DIR/vllm.pid)"
-            
-            echo ""
-            print_step "Waiting for vLLM API to be ready..."
-            print_info "This may take several minutes for first-time model download..."
-            
-            # Wait for API to respond (with timeout)
-            MAX_WAIT=600  # 10 minutes
-            WAITED=0
-            API_READY=0
-            while [[ $WAITED -lt $MAX_WAIT ]]; do
-                if curl -s "http://${IP}:${VLLM_PORT}/v1/models" > /dev/null 2>&1; then
-                    API_READY=1
-                    break
-                fi
-                sleep 10
-                WAITED=$((WAITED + 10))
-                if [[ $((WAITED % 60)) -eq 0 ]]; then
-                    print_info "Still waiting... (${WAITED}s elapsed)"
-                fi
-            done
-            
-            if [[ $API_READY -eq 1 ]]; then
-                print_success "vLLM API is ready!"
-            else
-                print_warning "API not responding yet. Check logs: tail -f $SCRIPT_DIR/vllm.log"
-            fi
+        
+        # Check if Ray is already running
+        if check_ray_running; then
+            print_skip "Ray head already running"
         else
-            print_error "Failed to start Ray head"
-            INSTALL_FAILED=1
+            print_step "Running: 06-ray-head.sh"
+            if bash "$SCRIPT_DIR/scripts/06-ray-head.sh"; then
+                print_success "Ray head node started"
+                echo ""
+                print_step "Waiting 5 seconds for Ray to stabilize..."
+                sleep 5
+            else
+                print_error "Failed to start Ray head"
+                INSTALL_FAILED=1
+            fi
+        fi
+        
+        # Check if vLLM is already running
+        if [[ $INSTALL_FAILED -eq 0 ]]; then
+            echo ""
+            if check_vllm_running; then
+                print_skip "vLLM already running"
+                print_info "PID: $(cat $SCRIPT_DIR/vllm.pid)"
+                print_info "Logs: $SCRIPT_DIR/vllm.log"
+                
+                # Still check if API is responding
+                if curl -s "http://${IP}:${VLLM_PORT}/v1/models" > /dev/null 2>&1; then
+                    print_success "vLLM API is responding"
+                else
+                    print_warning "vLLM process running but API not responding"
+                    print_info "Check logs: tail -f $SCRIPT_DIR/vllm.log"
+                fi
+            else
+                print_step "Running: 08-vllm-serve.sh"
+                print_info "Starting vLLM API server (this will run in background)"
+                print_info "Model: $MODEL"
+                print_warning "Note: First model load may take time to download from HuggingFace"
+                
+                # Run vLLM in background
+                nohup bash "$SCRIPT_DIR/scripts/08-vllm-serve.sh" > "$SCRIPT_DIR/vllm.log" 2>&1 &
+                VLLM_PID=$!
+                echo $VLLM_PID > "$SCRIPT_DIR/vllm.pid"
+                
+                print_success "vLLM server starting in background (PID: $VLLM_PID)"
+                print_info "Logs: $SCRIPT_DIR/vllm.log"
+                print_info "To stop: kill \$(cat $SCRIPT_DIR/vllm.pid)"
+                
+                echo ""
+                print_step "Waiting for vLLM API to be ready..."
+                print_info "This may take several minutes for first-time model download..."
+                
+                # Wait for API to respond (with timeout)
+                MAX_WAIT=600  # 10 minutes
+                WAITED=0
+                API_READY=0
+                while [[ $WAITED -lt $MAX_WAIT ]]; do
+                    if curl -s "http://${IP}:${VLLM_PORT}/v1/models" > /dev/null 2>&1; then
+                        API_READY=1
+                        break
+                    fi
+                    sleep 10
+                    WAITED=$((WAITED + 10))
+                    if [[ $((WAITED % 60)) -eq 0 ]]; then
+                        print_info "Still waiting... (${WAITED}s elapsed)"
+                    fi
+                done
+                
+                if [[ $API_READY -eq 1 ]]; then
+                    print_success "vLLM API is ready!"
+                else
+                    print_warning "API not responding yet. Check logs: tail -f $SCRIPT_DIR/vllm.log"
+                fi
+            fi
         fi
         
     else
         # WORKER NODE: Start iperf3 and connect to Ray
         echo ""
-        print_step "Running: 03-test-link.sh (starting iperf3 server)"
-        if bash "$SCRIPT_DIR/scripts/03-test-link.sh"; then
-            print_success "iperf3 server started"
+        
+        # iperf3 server (check if already running)
+        if pgrep -f "iperf3 -s" > /dev/null; then
+            print_skip "iperf3 server already running"
         else
-            print_warning "iperf3 server failed to start (non-critical)"
+            print_step "Running: 03-test-link.sh (starting iperf3 server)"
+            if bash "$SCRIPT_DIR/scripts/03-test-link.sh"; then
+                print_success "iperf3 server started"
+            else
+                print_warning "iperf3 server failed to start (non-critical)"
+            fi
         fi
         
         echo ""
-        print_warning "Worker node needs the HEAD node to be ready before connecting to Ray"
-        read -p "Is the HEAD node Ray cluster ready? (yes/no) [no]: " HEAD_READY
-        HEAD_READY=${HEAD_READY:-no}
         
-        if [[ "$HEAD_READY" == "yes" ]]; then
-            echo ""
-            print_step "Running: 07-ray-worker.sh"
-            if bash "$SCRIPT_DIR/scripts/07-ray-worker.sh"; then
-                print_success "Ray worker connected to cluster"
-            else
-                print_error "Failed to connect to Ray cluster"
-                print_info "Make sure HEAD node is running: $MASTER_ADDR:$MASTER_PORT"
-                INSTALL_FAILED=1
-            fi
+        # Check if Ray worker is already connected
+        if check_ray_running; then
+            print_skip "Ray worker already connected to cluster"
         else
-            print_info "Skipping Ray worker connection"
-            print_info "Run manually when head is ready: bash scripts/07-ray-worker.sh"
+            print_warning "Worker node needs the HEAD node to be ready before connecting to Ray"
+            read -p "Is the HEAD node Ray cluster ready? (yes/no/skip) [no]: " HEAD_READY
+            HEAD_READY=${HEAD_READY:-no}
+            
+            if [[ "$HEAD_READY" == "yes" ]]; then
+                echo ""
+                print_step "Running: 07-ray-worker.sh"
+                if bash "$SCRIPT_DIR/scripts/07-ray-worker.sh"; then
+                    print_success "Ray worker connected to cluster"
+                else
+                    print_error "Failed to connect to Ray cluster"
+                    print_info "Make sure HEAD node is running: $MASTER_ADDR:$MASTER_PORT"
+                    INSTALL_FAILED=1
+                fi
+            else
+                print_info "Skipping Ray worker connection"
+                print_info "Run manually when head is ready: bash scripts/07-ray-worker.sh"
+            fi
         fi
     fi
 fi
