@@ -6,12 +6,28 @@ services:
       - "3000:8080"
     environment:
       - WEBUI_NAME=DGX Cluster UI
-      - ENABLE_OPENAI_API=True
-      - OPENAI_API_BASE_URL=http://${MASTER_ADDR}:${VLLM_PORT}/v1
-      - OPENAI_API_KEY=local
+      # OpenAI-compatible endpoint configuration
+      - OPENAI_API_BASE_URLS=http://${MASTER_ADDR:-192.168.40.1}:${VLLM_PORT:-8000}/v1
+      - OPENAI_API_KEYS=sk-dummy
+      # Optional: Enable Ollama if you want both
+      # - OLLAMA_BASE_URL=http://host.docker.internal:11434
     volumes:
       - openwebui_data:/app/backend/data
+      # Optional: Mount HuggingFace cache to share with vLLM
+      # - ${HF_HOME:-$HOME/.cache/huggingface}:/app/backend/data/cache/hub:ro
+    extra_hosts:
+      # Allow container to access host network
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    # Optional: Uncomment to use GPUs in Open WebUI container
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
 volumes:
   openwebui_data: {}
 
