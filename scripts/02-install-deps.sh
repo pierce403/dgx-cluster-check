@@ -44,21 +44,22 @@ ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 
 # Install PyTorch with CUDA 12 support FIRST (critical for vLLM)
+# vLLM 0.11.0 requires torch==2.8.0, torchvision==0.23.0, torchaudio==2.8.0
 echo ""
-echo "Installing PyTorch with CUDA 12 support..."
+echo "Installing PyTorch 2.8.0 with CUDA 12 support (required by vLLM)..."
 if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
-    echo "ARM64 system detected - Installing PyTorch for ARM..."
-    # Try official CUDA wheel first, fall back to nightly if needed
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 || \
-    pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121 || \
+    echo "ARM64 system detected - Installing PyTorch 2.8.0 for ARM..."
+    # Try official CUDA wheel for specific version first
+    pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu121 || \
     {
-        echo "⚠ Pre-built PyTorch CUDA wheels unavailable for ARM"
-        echo "  Installing CPU version - vLLM may need additional configuration"
+        echo "⚠ PyTorch 2.8.0 CUDA wheels not available for ARM"
+        echo "  Trying latest available version (may have compatibility issues)..."
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 || \
         pip install torch torchvision torchaudio
     }
 else
-    # x86_64 - standard CUDA installation
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    # x86_64 - install specific version for vLLM compatibility
+    pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu121
 fi
 
 # Verify PyTorch installation
