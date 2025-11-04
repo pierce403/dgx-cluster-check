@@ -6,6 +6,21 @@ VENV_DIR="$SCRIPT_DIR/../venv"
 
 echo "Installing system packages..."
 sudo apt update
+
+# Install CUDA runtime and toolkit if not present
+echo "Checking for CUDA installation..."
+if ! ldconfig -p | grep -q libcudart.so.12; then
+    echo "CUDA 12 runtime not found. Installing CUDA toolkit..."
+    # Try to install CUDA toolkit
+    sudo apt install -y nvidia-cuda-toolkit cuda-toolkit-12-* || \
+    sudo apt install -y nvidia-cudnn cuda-runtime-12-* || \
+    sudo apt install -y cuda-drivers cuda-runtime-12-6 || \
+    echo "Note: Could not install CUDA via apt. It may already be installed in /usr/local/cuda"
+else
+    echo "✓ CUDA runtime found"
+fi
+
+# Install other dependencies
 sudo apt install -y iperf3 openmpi-bin libopenmpi-dev rdma-core perftest git build-essential \
                     python3-pip python3-venv python3-full libnccl2 libnccl-dev
 
