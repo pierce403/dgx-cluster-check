@@ -39,11 +39,35 @@ source "$VENV_DIR/bin/activate"
 
 pip install -U pip wheel
 
+# Detect architecture for PyTorch installation
+ARCH=$(uname -m)
+echo "Detected architecture: $ARCH"
+
 # Install PyTorch with CUDA 12 support FIRST (critical for vLLM)
+echo ""
 echo "Installing PyTorch with CUDA 12 support..."
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
+    echo "ARM64 system detected - Installing PyTorch for ARM..."
+    # Try official CUDA wheel first, fall back to nightly if needed
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 || \
+    pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121 || \
+    {
+        echo "⚠ Pre-built PyTorch CUDA wheels unavailable for ARM"
+        echo "  Installing CPU version - vLLM may need additional configuration"
+        pip install torch torchvision torchaudio
+    }
+else
+    # x86_64 - standard CUDA installation
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+fi
+
+# Verify PyTorch installation
+echo ""
+echo "Verifying PyTorch installation..."
+python -c "import torch; print(f'PyTorch {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 
 # Now install Ray and vLLM (which will use the PyTorch we just installed)
+echo ""
 echo "Installing Ray and vLLM..."
 pip install -U ray[default] vllm
 
