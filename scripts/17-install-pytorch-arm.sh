@@ -27,15 +27,46 @@ fi
 echo "ARM64 architecture detected"
 echo ""
 echo "PyTorch CUDA wheels are not available for ARM64 via standard pip."
-echo "We have three options:"
 echo ""
-echo "1. Install PyTorch CPU version + use system CUDA libraries (quick, may work)"
-echo "2. Build PyTorch from source with CUDA (30-60 min, guaranteed to work)"
-echo "3. Use a newer vLLM version that works with available PyTorch"
+echo "⚠ IMPORTANT: For DGX Spark/GraceHopper systems, NVIDIA recommends using"
+echo "   their NGC containers which have pre-built PyTorch with CUDA support."
+echo "   See: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch"
+echo ""
+echo "However, for this venv-based setup, we have these options:"
+echo ""
+echo "1. Install latest available PyTorch (quick, likely works)"
+echo "2. Build PyTorch from source with CUDA (30-60 min, guaranteed)"  
+echo "3. Upgrade to newer vLLM that works with latest PyTorch"
+echo "4. Exit and use NGC containers instead (recommended)"
 echo ""
 
-read -p "Choose option (1/2/3) [1]: " OPTION
+read -p "Choose option (1/2/3/4) [1]: " OPTION
 OPTION=${OPTION:-1}
+
+if [[ "$OPTION" == "4" ]]; then
+    echo ""
+    echo "======================================================================"
+    echo "Using NGC Containers (Recommended for DGX Systems)"
+    echo "======================================================================"
+    echo ""
+    echo "NVIDIA provides optimized containers for DGX ARM systems:"
+    echo ""
+    echo "1. Install NVIDIA Container Toolkit:"
+    echo "   sudo apt install -y nvidia-container-toolkit"
+    echo ""
+    echo "2. Pull PyTorch container:"
+    echo "   docker pull nvcr.io/nvidia/pytorch:24.10-py3"
+    echo ""
+    echo "3. Run vLLM in container:"
+    echo "   docker run --gpus all --network host \\"
+    echo "     -v \$HOME/.cache/huggingface:/root/.cache/huggingface \\"
+    echo "     nvcr.io/nvidia/pytorch:24.10-py3 \\"
+    echo "     bash -c 'pip install vllm && python -m vllm.entrypoints.api_server ...'"
+    echo ""
+    echo "See README for container-based setup instructions."
+    echo ""
+    exit 0
+fi
 
 if [[ "$OPTION" == "1" ]]; then
     echo ""
@@ -51,7 +82,9 @@ if [[ "$OPTION" == "1" ]]; then
     pip uninstall -y torch torchvision torchaudio 2>/dev/null || true
     
     # Install CPU version (which actually can use CUDA if libraries are present)
-    pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
+    # For ARM64, use default PyPI (no CUDA wheels available)
+    pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 || \
+    pip install torch torchvision torchaudio
     
     echo ""
     echo "Testing CUDA availability..."
