@@ -38,6 +38,13 @@ echo "Installing Python packages in virtual environment..."
 source "$VENV_DIR/bin/activate"
 
 pip install -U pip wheel
+
+# Install PyTorch with CUDA 12 support FIRST (critical for vLLM)
+echo "Installing PyTorch with CUDA 12 support..."
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Now install Ray and vLLM (which will use the PyTorch we just installed)
+echo "Installing Ray and vLLM..."
 pip install -U ray[default] vllm
 
 echo ""
